@@ -557,6 +557,47 @@ button {
                 <span id="barCIRNumber">0</span>
             </div>
             <div class="bar-background">
+                    <div class="section-title">Missed Breaks</div>
+
+    <div class="quick-grid">
+        <button class="quick-btn" onclick="openBreakForm('NO COFFEE')">
+            <div class="name">NO COFFEE</div>
+            <div class="count" id="countNoCoffee">0</div>
+        </button>
+
+        <button class="quick-btn" onclick="openBreakForm('NO LUNCH')">
+            <div class="name">NO LUNCH</div>
+            <div class="count" id="countNoLunch">0</div>
+        </button>
+    </div>
+
+    <div id="breakFormCard" class="form-card">
+        <div class="form-title" id="breakFormTitle">Add Missed Break</div>
+
+        <input type="hidden" id="editingBreakId">
+
+        <div class="field">
+            <label>Date</label>
+            <input type="date" id="breakDate">
+        </div>
+
+        <div class="field">
+            <label>Time</label>
+            <input type="time" id="breakTime">
+        </div>
+
+        <div class="field">
+            <label>Note</label>
+            <textarea id="breakNotes" placeholder="Why was the break missed?"></textarea>
+        </div>
+
+        <div class="form-buttons">
+            <button class="secondary-btn" onclick="closeBreakForm()">Cancel</button>
+            <button class="primary-btn" onclick="saveBreak()">Save Break</button>
+        </div>
+    </div>
+
+    <div id="currentBreakEntries"></div>
                 <div class="bar bar-cir" id="barCIR"></div>
             </div>
         </div>
@@ -607,12 +648,15 @@ button {
 <script>
 
 const STORAGE_KEY = "workTrackerActivities";
+const BREAK_STORAGE_KEY = "workTrackerBreaks";
 
 let activities = JSON.parse(
     localStorage.getItem(STORAGE_KEY) || "[]"
 );
 
 let currentType = null;
+let breaks = JSON.parse(localStorage.getItem(BREAK_STORAGE_KEY) || "[]");
+let currentBreakType = null;
 
 function saveToStorage() {
     localStorage.setItem(
@@ -690,6 +734,73 @@ function formatDate(dateString) {
     );
 }
 
+function openBreakForm(type) {
+    currentBreakType = type;
+
+    document.getElementById("breakFormCard").classList.add("active");
+    document.getElementById("breakFormTitle").textContent = type;
+
+    const now = new Date();
+
+    document.getElementById("breakDate").value =
+        now.toISOString().split("T")[0];
+
+    document.getElementById("breakTime").value =
+        now.toTimeString().slice(0,5);
+
+    document.getElementById("breakNotes").value = "";
+    document.getElementById("editingBreakId").value = "";
+}
+
+function closeBreakForm() {
+    document.getElementById("breakFormCard").classList.remove("active");
+    currentBreakType = null;
+}
+
+function saveBreak() {
+    const date = document.getElementById("breakDate").value;
+    const time = document.getElementById("breakTime").value;
+    const notes = document.getElementById("breakNotes").value.trim();
+
+    if (!date) {
+        alert("Please select a date.");
+        return;
+    }
+
+    const breakEntry = {
+        id: Date.now(),
+        type: currentBreakType,
+        date: date,
+        time: time,
+        notes: notes
+    };
+
+    const editingId = document.getElementById("editingBreakId").value;
+
+if (editingId) {
+    const index = breaks.findIndex(b => b.id == editingId);
+
+    if (index !== -1) {
+        breaks[index] = {
+            ...breaks[index],
+            type: currentBreakType,
+            date: date,
+            time: time,
+            notes: notes
+        };
+    }
+} else {
+    breaks.push(breakEntry);
+}
+
+    localStorage.setItem(
+        BREAK_STORAGE_KEY,
+        JSON.stringify(breaks)
+    );
+
+    closeBreakForm();
+    render();
+}
 function openForm(type) {
 
     currentType = type;
@@ -822,6 +933,38 @@ function saveActivity() {
     render();
 }
 
+function editBreak(id) {
+    const entry = breaks.find(b => b.id === id);
+    if (!entry) return;
+
+    currentBreakType = entry.type;
+
+    document.getElementById("breakFormCard").classList.add("active");
+    document.getElementById("breakFormTitle").textContent = "Edit " + entry.type;
+
+    document.getElementById("breakDate").value = entry.date;
+    document.getElementById("breakTime").value = entry.time || "";
+    document.getElementById("breakNotes").value = entry.notes || "";
+    document.getElementById("editingBreakId").value = id;
+}
+
+function deleteBreak(id) {
+    const entry = breaks.find(b => b.id === id);
+    if (!entry) return;
+
+    const answer = confirm("Delete this " + entry.type + " entry?");
+
+    if (!answer) return;
+
+    breaks = breaks.filter(b => b.id !== id);
+
+    localStorage.setItem(
+        BREAK_STORAGE_KEY,
+        JSON.stringify(breaks)
+    );
+
+    render();
+}
 function deleteActivity(id) {
 
     const entry =
@@ -1025,6 +1168,57 @@ function typeBadgeClass(type) {
     return "badge-1045";
 }
 
+function renderBreaks() {
+    const month = getCurrentMonthKey();
+
+    const monthBreaks = breaks
+        .filter(b => b.date && b.date.startsWith(month))
+        .sort((a, b) => {
+            const aKey = `${a.date} ${a.time || ""}`;
+            const bKey = `${b.date} ${b.time || ""}`;
+            return bKey.localeCompare(aKey);
+        });
+
+    const noCoffee = monthBreaks.filter(b => b.type === "NO COFFEE").length;
+    const noLunch = monthBreaks.filter(b => b.type === "NO LUNCH").length;
+
+    document.getElementById("countNoCoffee").textContent = noCoffee;
+    document.getElementById("countNoLunch").textContent = noLunch;
+
+    const container = document.getElementById("currentBreakEntries");
+
+    if (!container) return;
+
+    if (monthBreaks.length === 0) {
+        container.innerHTML = "";
+        return;
+    }
+
+    container.innerHTML = `
+        <div class="section-title">Missed Break Entries</div>
+        <div class="chart-card">
+            ${monthBreaks.map(b => `
+                <div class="entry-card">
+                    <div class="entry-top">
+                        <strong>${escapeHTML(b.type)}</strong>
+                        <span>${escapeHTML(b.date)} ${escapeHTML(b.time || "")}</span>
+                    </div>
+
+                    ${b.notes ? `
+                        <div class="entry-notes">
+                            ${escapeHTML(b.notes)}
+                        </div>
+                    ` : ""}
+
+                    <div class="entry-actions">
+                        <button class="secondary-btn" onclick="editBreak(${b.id})">Edit</button>
+                        <button class="delete-btn" onclick="deleteBreak(${b.id})">Delete</button>
+                    </div>
+                </div>
+            `).join("")}
+        </div>
+    `;
+}
 function renderCurrentEntries() {
 
     const container =
@@ -1225,7 +1419,7 @@ function render() {
     renderCounts();
 
     renderCurrentEntries();
-
+renderBreaks();
     renderHistory();
 }
 
